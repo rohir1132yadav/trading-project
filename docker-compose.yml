@@ -1,0 +1,55 @@
+version: "3.9"
+
+services:
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: trading_user
+      POSTGRES_PASSWORD: trading_pass
+      POSTGRES_DB: trading_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading_user -d trading_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://trading_user:trading_pass@postgres:5432/trading_db
+      SCAN_INTERVAL_MINUTES: "60"
+      DAILY_INCREASE_THRESHOLD: "2.0"
+      LIQUIDITY_SPREAD_THRESHOLD: "2.0"
+      PREMIUM_GROWTH_THRESHOLD: "4.0"
+      MIN_VOLUME: "1000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://backend:8000/api
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
