@@ -1,10 +1,19 @@
 """Stock scanner — Layer 3/4 strategy implementation.
 
 Pipeline (from whiteboard):
-  Stocks list  →  Volume > 1000  →  Daily change > 2%
-               →  Liquidity check (spread < 2%)
-               →  Premium growth > 4%
-               →  Generate BUY signal
+  System auto-selects 25 stocks
+        ↓
+  Fetch market data for all stocks
+        ↓
+  Filter: daily change > 2%
+        ↓
+  Liquidity check: (Ask - Bid) / Spot < 40%
+        ↓
+  ATM premium check: premium growth > 4%
+        ↓
+  Trade at Ask price → generate BUY signal
+        ↓
+  Auto-display on user dashboard next morning
 """
 
 from sqlalchemy.orm import Session
@@ -21,6 +30,7 @@ from backend.services.premium import check_premium_growth
 
 
 def _ensure_stocks_exist(db: Session) -> list[str]:
+    """System auto-loads the stock universe — user does not select stocks."""
     existing = {s.symbol for s in db.query(Stock.symbol).all()}
     for sym in DEFAULT_STOCKS:
         if sym not in existing:
@@ -40,7 +50,15 @@ def _calculate_daily_change(current_ltp: float, prev_close: float) -> float:
 
 
 def run_scan(db: Session) -> list[dict]:
-    """Execute the full scan pipeline and return generated signals."""
+    """Execute the full scan pipeline and return generated signals.
+
+    Stocks are auto-selected by the system. The pipeline:
+    1. Fetch data for all stocks in the universe
+    2. Filter stocks with daily change > 2%
+    3. Liquidity check: (Ask - Bid) / Spot < 40%
+    4. ATM premium growth check: growth > 4%
+    5. If all pass → trade at Ask price, generate BUY signal
+    """
     symbols = _ensure_stocks_exist(db)
     quotes = fetch_market_data(symbols)
 
@@ -54,6 +72,7 @@ def run_scan(db: Session) -> list[dict]:
         volume = q.get("volume", 0)
         premium = q.get("premium", 0)
         prev_close = q.get("close", ltp)
+        spot = ltp
 
         db.add(PriceHistory(
             symbol=symbol,
@@ -75,7 +94,7 @@ def run_scan(db: Session) -> list[dict]:
         if daily_change < DAILY_INCREASE_THRESHOLD:
             continue
 
-        spread_ok, spread_pct = check_liquidity(bid, ask)
+        spread_ok, spread_pct = check_liquidity(bid, ask, spot)
         if not spread_ok:
             continue
 
@@ -86,32 +105,44 @@ def run_scan(db: Session) -> list[dict]:
             .offset(1)
             .first()
         )
-        old_premium = last_price.premium if last_price and last_price.premium else premium * 0.9
+        old_premium = (
+            last_price.premium
+            if last_price and last_price.premium
+            else premium * 0.9
+        )
         premium_ok, premium_growth = check_premium_growth(premium, old_premium)
 
-        signal_type = "BUY" if premium_ok else "HOLD"
+        if not premium_ok:
+            continue
+
+        trade_price = ask
         confidence = min(
             100.0,
             (daily_change / DAILY_INCREASE_THRESHOLD) * 30
-            + ((2.0 - spread_pct) / 2.0) * 30
+            + ((40.0 - spread_pct) / 40.0) * 30
             + (premium_growth / 4.0) * 40,
         )
 
         sig = Signal(
             symbol=symbol,
-            signal_type=signal_type,
+            signal_type="BUY",
             daily_change_pct=daily_change,
             spread_pct=spread_pct,
             premium_growth_pct=premium_growth,
             ltp=ltp,
             confidence=round(confidence, 1),
-            notes=f"Vol={volume}, Spread={spread_pct}%, PremGrowth={premium_growth}%",
+            notes=(
+                f"TradeAt=₹{trade_price}, "
+                f"Spread={spread_pct}%, "
+                f"ATM PremGrowth={premium_growth}%"
+            ),
         )
         db.add(sig)
         signals.append({
             "symbol": symbol,
-            "signal": signal_type,
+            "signal": "BUY",
             "ltp": ltp,
+            "trade_price": trade_price,
             "daily_change": daily_change,
             "spread": spread_pct,
             "premium_growth": premium_growth,

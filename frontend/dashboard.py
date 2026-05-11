@@ -1,4 +1,8 @@
-"""Streamlit Trading Dashboard — connects to the FastAPI backend."""
+"""Streamlit Trading Dashboard — connects to the FastAPI backend.
+
+Stocks are auto-selected by the system. Signals are generated automatically
+each morning and displayed here. Users can also trigger a manual scan.
+"""
 
 import os
 
@@ -40,18 +44,23 @@ def api_post(endpoint: str):
 # ── Header ──────────────────────────────────────────────────────────
 st.title("📈 Trading Stock Scanner")
 st.markdown(
-    "**Layer 3/4 Strategy** — Daily change → Liquidity check → "
-    "Premium growth → Signal generation"
+    "**Layer 3/4 Strategy** — System auto-selects stocks with >2% daily change "
+    "→ Liquidity: (Ask-Bid)/Spot < 40% → ATM premium growth > 4% "
+    "→ Trade at Ask price"
+)
+st.caption(
+    "Stocks are auto-selected by the system. "
+    "Signals are generated every morning and displayed automatically."
 )
 
 # ── Sidebar ─────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Controls")
     if st.button("🔄 Run Scan Now", use_container_width=True):
-        with st.spinner("Scanning..."):
+        with st.spinner("Scanning all stocks..."):
             result = api_post("/scan")
         if result:
-            st.success(f"{result['signals_generated']} signal(s) generated")
+            st.success(f"{result['signals_generated']} BUY signal(s) generated")
 
     st.divider()
     st.header("Portfolio")
@@ -60,32 +69,59 @@ with st.sidebar:
         st.metric("Balance", f"₹{portfolio['balance']:,.2f}")
         st.metric("P/L", f"₹{portfolio['total_profit_loss']:,.2f}")
 
+    st.divider()
+    st.caption(
+        "Scan runs automatically every morning.\n\n"
+        "**Pipeline:**\n"
+        "1. Fetch all 25 stocks\n"
+        "2. Filter: Change > 2%\n"
+        "3. Liquidity: (Ask-Bid)/Spot < 40%\n"
+        "4. ATM Premium Growth > 4%\n"
+        "5. Trade at Ask price"
+    )
+
 # ── Tabs ────────────────────────────────────────────────────────────
 tab_signals, tab_stocks, tab_history, tab_charts = st.tabs(
-    ["📊 Signals", "📋 Stocks", "📜 Trade History", "📈 Charts"]
+    ["📊 Signals", "📋 Auto-Selected Stocks", "📜 Trade History", "📈 Charts"]
 )
 
 # ── Signals Tab ─────────────────────────────────────────────────────
 with tab_signals:
-    st.subheader("Latest Trading Signals")
+    st.subheader("Auto-Generated Trading Signals")
+    st.caption(
+        "Only BUY signals are shown — stocks that passed all filters "
+        "(daily change > 2%, liquidity spread < 40%, ATM premium growth > 4%)"
+    )
     signals = api_get("/signals?limit=50")
     if signals:
         df = pd.DataFrame(signals)
         if not df.empty:
-            df_display = df[
-                ["symbol", "signal", "ltp", "daily_change", "spread",
-                 "premium_growth", "confidence", "created_at"]
-            ].copy()
-            df_display.columns = [
-                "Stock", "Signal", "LTP (₹)", "Change %", "Spread %",
-                "Premium Growth %", "Confidence", "Time",
+            display_cols = [
+                "symbol", "signal", "ltp", "daily_change", "spread",
+                "premium_growth", "confidence", "notes", "created_at",
             ]
+            available_cols = [c for c in display_cols if c in df.columns]
+            df_display = df[available_cols].copy()
+
+            col_rename = {
+                "symbol": "Stock",
+                "signal": "Signal",
+                "ltp": "Spot (₹)",
+                "daily_change": "Change %",
+                "spread": "Spread (Ask-Bid)/Spot %",
+                "premium_growth": "ATM Premium Growth %",
+                "confidence": "Confidence",
+                "notes": "Trade Details",
+                "created_at": "Generated At",
+            }
+            df_display.rename(
+                columns={k: v for k, v in col_rename.items() if k in df_display.columns},
+                inplace=True,
+            )
 
             def color_signal(val: str) -> str:
                 if val == "BUY":
                     return "background-color: #27ae60; color: white"
-                if val == "SELL":
-                    return "background-color: #e74c3c; color: white"
                 return "background-color: #f39c12; color: white"
 
             styled = df_display.style.applymap(
@@ -100,64 +136,43 @@ with tab_signals:
                     x="Stock",
                     y="Change %",
                     color="Signal",
-                    title="Daily Change by Stock",
-                    color_discrete_map={
-                        "BUY": "#27ae60",
-                        "SELL": "#e74c3c",
-                        "HOLD": "#f39c12",
-                    },
+                    title="Daily Change by Stock (Auto-Selected > 2%)",
+                    color_discrete_map={"BUY": "#27ae60"},
                 )
                 st.plotly_chart(fig, use_container_width=True)
             with col2:
                 fig = px.scatter(
                     df_display,
-                    x="Spread %",
-                    y="Premium Growth %",
+                    x="Spread (Ask-Bid)/Spot %",
+                    y="ATM Premium Growth %",
                     size="Confidence",
                     color="Signal",
                     hover_name="Stock",
-                    title="Spread vs Premium Growth",
-                    color_discrete_map={
-                        "BUY": "#27ae60",
-                        "SELL": "#e74c3c",
-                        "HOLD": "#f39c12",
-                    },
+                    title="Spread vs ATM Premium Growth",
+                    color_discrete_map={"BUY": "#27ae60"},
                 )
                 st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No signals yet. Click 'Run Scan Now' in the sidebar.")
+            st.info(
+                "No signals yet. Signals are generated automatically each morning. "
+                "You can also click 'Run Scan Now' in the sidebar."
+            )
     else:
         st.info("Could not fetch signals. Is the backend running?")
 
 # ── Stocks Tab ──────────────────────────────────────────────────────
 with tab_stocks:
-    st.subheader("Tracked Stocks")
+    st.subheader("System Stock Universe (Auto-Selected)")
+    st.caption(
+        "These 25 stocks are monitored automatically by the system. "
+        "Stocks with >2% daily change are filtered for trading signals."
+    )
     stocks = api_get("/stocks")
     if stocks:
         df_stocks = pd.DataFrame(stocks)
         st.dataframe(df_stocks, use_container_width=True, hide_index=True)
     else:
         st.info("No stocks loaded yet. Run a scan first.")
-
-    st.divider()
-    st.subheader("Add a Stock")
-    with st.form("add_stock"):
-        new_symbol = st.text_input("Symbol (e.g. RELIANCE)")
-        new_name = st.text_input("Company Name (optional)")
-        submitted = st.form_submit_button("Add")
-        if submitted and new_symbol:
-            try:
-                resp = requests.post(
-                    f"{API_URL}/stocks",
-                    params={"symbol": new_symbol, "name": new_name or None},
-                    timeout=10,
-                )
-                if resp.status_code == 200:
-                    st.success(f"Added {new_symbol.upper()}")
-                else:
-                    st.warning(resp.json().get("detail", "Error adding stock"))
-            except requests.RequestException as exc:
-                st.error(f"Error: {exc}")
 
 # ── Trade History Tab ───────────────────────────────────────────────
 with tab_history:
@@ -214,7 +229,7 @@ with tab_charts:
                     with col2:
                         fig_prem = px.line(
                             df_prices, x="recorded_at", y="premium",
-                            title=f"{selected} Option Premium",
+                            title=f"{selected} ATM Option Premium",
                         )
                         st.plotly_chart(fig_prem, use_container_width=True)
                 else:
@@ -224,4 +239,4 @@ with tab_charts:
 
 # ── Footer ──────────────────────────────────────────────────────────
 st.divider()
-st.caption("Trading Stock Scanner v1.0 — Demo/Educational Use Only")
+st.caption("Trading Stock Scanner v1.1 — Demo/Educational Use Only")

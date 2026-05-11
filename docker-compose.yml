@@ -31,9 +31,10 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://trading_user:trading_pass@postgres:5432/trading_db
-      SCAN_INTERVAL_MINUTES: "60"
+      SCAN_CRON_HOUR: "9"
+      SCAN_CRON_MINUTE: "15"
       DAILY_INCREASE_THRESHOLD: "2.0"
-      LIQUIDITY_SPREAD_THRESHOLD: "2.0"
+      LIQUIDITY_SPREAD_THRESHOLD: "40.0"
       PREMIUM_GROWTH_THRESHOLD: "4.0"
       MIN_VOLUME: "1000"
     depends_on:
