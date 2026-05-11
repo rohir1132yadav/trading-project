@@ -1,0 +1,26 @@
+import os
+
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://trading_user:trading_pass@postgres:5432/trading_db",
+)
+
+DEMO_API_BASE_URL = os.getenv("DEMO_API_BASE_URL", "https://demo-api.com")
+
+SCAN_INTERVAL_MINUTES = int(os.getenv("SCAN_INTERVAL_MINUTES", "60"))
+SCAN_CRON_HOUR = int(os.getenv("SCAN_CRON_HOUR", "9"))
+SCAN_CRON_MINUTE = int(os.getenv("SCAN_CRON_MINUTE", "15"))
+
+DAILY_INCREASE_THRESHOLD = float(os.getenv("DAILY_INCREASE_THRESHOLD", "2.0"))
+LIQUIDITY_SPREAD_THRESHOLD = float(os.getenv("LIQUIDITY_SPREAD_THRESHOLD", "40.0"))
+PREMIUM_GROWTH_THRESHOLD = float(os.getenv("PREMIUM_GROWTH_THRESHOLD", "4.0"))
+MIN_VOLUME = int(os.getenv("MIN_VOLUME", "1000"))
+
+DEFAULT_STOCKS = [
+    "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK",
+    "KOTAKBANK", "SBIN", "BHARTIARTL", "ITC", "LT",
+    "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "SUNPHARMA",
+    "TATAMOTORS", "ULTRACEMCO", "NTPC", "POWERGRID", "TITAN",
+    "BAJFINANCE", "ASIANPAINT", "NESTLEIND", "TECHM", "HINDUNILVR",
+]
